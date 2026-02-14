@@ -1,0 +1,40 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "The page or article title"
+      },
+      "author": {
+        "type": "string",
+        "description": "Author name if available"
+      },
+      "date": {
+        "type": "string",
+        "description": "Publication date in ISO format"
+      },
+      "summary": {
+        "type": "string",
+        "description": "A 2-3 sentence summary of the main content"
+      },
+      "key_points": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Main takeaways or bullet points"
+      },
+      "links": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string" },
+            "url": { "type": "string" }
+          }
+        },
+        "description": "Important links referenced in the content"
+      }
+    }
+  },
+  "prompt": "Extract the main article content, focusing on key information and takeaways."
+}
