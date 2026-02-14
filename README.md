@@ -19,6 +19,8 @@ In any Claude Code session:
 ```
 /firecrawl https://example.com
 /firecrawl https://example.com/products --params=schema.json
+/firecrawl https://example.com/products --fields=title,price,description
+/firecrawl https://example.com/products --prompt="Extract all product details"
 /firecrawl https://example.com --mobile --block-media
 /firecrawl https://news.ycombinator.com --output=hn.json
 ```
@@ -55,6 +57,9 @@ In any Claude Code session:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--params=<file>` | — | JSON file with extraction schema/prompt |
+| `--schema='<json>'` | — | Inline JSON Schema for extraction |
+| `--prompt="<text>"` | — | Inline extraction instructions |
+| `--fields=<a,b,c>` | — | Comma-separated field names to extract |
 | `--output=<file>` | — | Write extracted JSON to file |
 | `--browser` | off | Use Chrome automation instead of Playwright |
 | `--crawl` | off | Follow links across pages |
@@ -69,7 +74,11 @@ In any Claude Code session:
 | `--wait=<ms>` | 3000 | Extra wait after page load |
 | `--selector=<css>` | — | Wait for specific element |
 
-## Params File
+## Extraction Parameters
+
+Extraction parameters can be provided via a **file** or **inline flags**.
+
+### Params file (`--params=<file>`)
 
 ```json
 {
@@ -84,6 +93,21 @@ In any Claude Code session:
   "prompt": "Extract the main product details"
 }
 ```
+
+### Inline flags (no file needed)
+
+```
+# Simple field extraction
+/firecrawl https://example.com --fields=title,price,description
+
+# Natural language prompt
+/firecrawl https://example.com --prompt="Extract all product details and prices"
+
+# Full JSON Schema inline
+/firecrawl https://example.com --schema='{"type":"object","properties":{"title":{"type":"string"},"price":{"type":"number"}}}'
+```
+
+Inline flags override values from a params file when both are provided.
 
 ## How It Works
 

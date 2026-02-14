@@ -3,7 +3,7 @@ name: firecrawl
 description: Scrape a URL and extract structured data. Use when the user wants to crawl a website and extract information.
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, WebFetch, Glob, Grep
-argument-hint: <url> [--params=params.json] [--browser] [--crawl] [--depth=N] [--output=file.json] [--block-media] [--mobile] [--proxy=url]
+argument-hint: <url> [--params=params.json] [--schema='{}'] [--prompt="..."] [--fields=a,b,c] [--browser] [--crawl] [--depth=N] [--output=file.json] [--block-media] [--mobile] [--proxy=url]
 ---
 
 # Firecrawl — Scrape & Extract
@@ -15,6 +15,9 @@ You are a web scraping and data extraction agent. Your job is to scrape URLs and
 Parse `$ARGUMENTS` to extract:
 - **url**: The target URL (required, first positional argument)
 - **--params=<file>**: Path to a JSON file containing extraction schema and prompt (optional)
+- **--schema='<json>'**: Inline JSON Schema for extraction (optional, alternative to --params file)
+- **--prompt="<text>"**: Inline natural language extraction instructions (optional)
+- **--fields=<a,b,c>**: Comma-separated list of field names to extract (optional)
 - **--browser**: Use browser automation via Chrome for JS-heavy/SPA pages (optional flag)
 - **--crawl**: Follow links and scrape multiple pages from the site (optional flag)
 - **--depth=N**: Max crawl depth when using --crawl (default: 2)
@@ -31,7 +34,11 @@ If no URL is provided, ask the user for one.
 
 ## Step 1: Read Extraction Parameters
 
-If `--params` is specified, read the JSON file. It should contain any combination of:
+Extraction parameters can come from a **file** (`--params`) or **inline flags** (`--schema`, `--prompt`, `--fields`), or both. Inline flags override values from the params file when both are provided.
+
+### From a params file (`--params=<file>`)
+
+Read the JSON file. It should contain any combination of:
 ```json
 {
   "schema": { "type": "object", "properties": { ... } },
@@ -40,11 +47,22 @@ If `--params` is specified, read the JSON file. It should contain any combinatio
 }
 ```
 
-- `schema`: A JSON Schema defining the exact structure of extracted data
-- `prompt`: Natural language instructions for what to extract
-- `fields`: Simple list of field names to extract (shorthand for schema)
+### From inline flags (no file needed)
 
-If no params file is given, ask the user what they want to extract, or provide a comprehensive summary of the page content.
+- **`--schema='<json>'`**: An inline JSON Schema string. Example: `--schema='{"type":"object","properties":{"title":{"type":"string"},"price":{"type":"number"}}}'`
+- **`--prompt="<text>"`**: Natural language extraction instructions. Example: `--prompt="Extract product names and prices"`
+- **`--fields=<a,b,c>`**: Comma-separated field names (shorthand for schema). Example: `--fields=title,price,description`
+
+### Merging rules
+
+1. Start with params file values (if `--params` is provided)
+2. Override with any inline flags that are present:
+   - `--schema` replaces `schema` from file
+   - `--prompt` replaces `prompt` from file
+   - `--fields` replaces `fields` from file (split the comma-separated value into an array)
+3. The final merged parameters are used for extraction
+
+If no params file or inline flags are given, ask the user what they want to extract, or provide a comprehensive summary of the page content.
 
 ## Step 2: Scrape the URL
 
@@ -113,8 +131,19 @@ Output the extracted data as clean, formatted JSON.
 ## Example Usage
 
 ```
+# With a params file
 /firecrawl https://example.com/products --params=extract-products.json
 /firecrawl https://news.ycombinator.com --params=hn-schema.json --output=hn-data.json
+
+# With inline extraction parameters (no file needed)
+/firecrawl https://example.com/products --fields=title,price,description,image_url
+/firecrawl https://example.com/products --prompt="Extract all product names and prices"
+/firecrawl https://example.com/products --schema='{"type":"object","properties":{"title":{"type":"string"},"price":{"type":"number"}}}' --output=products.json
+
+# Inline prompt with a params file (prompt overrides the one in the file)
+/firecrawl https://example.com --params=base-schema.json --prompt="Focus on pricing info only"
+
+# Other flags
 /firecrawl https://spa-app.com/dashboard --browser
 /firecrawl https://docs.example.com --crawl --depth=3 --params=docs-schema.json
 /firecrawl https://example.com --block-media --mobile
