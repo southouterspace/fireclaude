@@ -29,15 +29,16 @@ import {
   rewriteUrl,
   cleanHtml,
   extractMetadata,
-  extractLinks,
   extractImages,
   extractYouTubeData,
 } from "./utils.mjs";
 
 // --- Flag parsing -----------------------------------------------------------
 
+const USAGE = 'Usage: node scrape.mjs <url> [--wait=<ms>] [--selector=<css>] [--full-page] [--no-adblock] [--block-media] [--proxy=<url>] [--proxy-auth=<u:p>] [--header="K: V"] [--skip-tls] [--mobile]';
+
 const args = process.argv.slice(2);
-const url = args.find((a) => !a.startsWith("--"));
+const url = args.find(a => !a.startsWith("--"));
 
 // Collect repeatable flags (--header) separately, then build single-value map
 const headers = {};
@@ -57,17 +58,15 @@ for (const a of args) {
 
 const flags = Object.fromEntries(
   singleArgs
-    .filter((a) => a.startsWith("--"))
-    .map((a) => {
+    .filter(a => a.startsWith("--"))
+    .map(a => {
       const [k, v] = a.slice(2).split("=");
       return [k, v ?? "true"];
     })
 );
 
 if (!url) {
-  console.error(
-    'Usage: node scrape.mjs <url> [--wait=<ms>] [--selector=<css>] [--full-page] [--no-adblock] [--block-media] [--proxy=<url>] [--proxy-auth=<u:p>] [--header="K: V"] [--skip-tls] [--mobile]'
-  );
+  console.error(USAGE);
   process.exit(1);
 }
 
@@ -105,6 +104,10 @@ const BLOCKED_MEDIA_EXTENSIONS = [
   "mp3", "mp4", "avi", "flac", "ogg", "wav", "webm",
 ];
 
+// --- Heading level lookup for Markdown conversion ---------------------------
+
+const HEADING_LEVELS = { h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6 };
+
 // --- Cheerio-based HTML to Markdown converter --------------------------------
 
 function htmlToMarkdown(cleanedHtml) {
@@ -119,25 +122,18 @@ function htmlToMarkdown(cleanedHtml) {
     const tag = el.name;
     const children = (el.children || []).map(nodeToMd).join("");
 
+    // Skip non-content tags
+    if (tag === "script" || tag === "style" || tag === "noscript" || tag === "svg" || tag === "iframe") {
+      return "";
+    }
+
+    // Headings (h1-h6)
+    if (tag in HEADING_LEVELS) {
+      const prefix = "#".repeat(HEADING_LEVELS[tag]);
+      return `\n${prefix} ${children.trim()}\n`;
+    }
+
     switch (tag) {
-      case "script":
-      case "style":
-      case "noscript":
-      case "svg":
-      case "iframe":
-        return "";
-      case "h1":
-        return `\n# ${children.trim()}\n`;
-      case "h2":
-        return `\n## ${children.trim()}\n`;
-      case "h3":
-        return `\n### ${children.trim()}\n`;
-      case "h4":
-        return `\n#### ${children.trim()}\n`;
-      case "h5":
-        return `\n##### ${children.trim()}\n`;
-      case "h6":
-        return `\n###### ${children.trim()}\n`;
       case "p":
         return `\n${children.trim()}\n`;
       case "br":
@@ -187,6 +183,9 @@ function htmlToMarkdown(cleanedHtml) {
       case "table": {
         const rows = $(el).find("tr");
         if (rows.length === 0) return "";
+        const firstRowCols = $(rows.first()).find("th, td").length;
+        if (firstRowCols === 0) return "";
+
         const tableData = rows
           .map((_, row) =>
             $(row)
@@ -195,19 +194,19 @@ function htmlToMarkdown(cleanedHtml) {
               .get()
           )
           .get();
-        // tableData is flat — reshape into 2D
-        const firstRowCols = $(rows.first()).find("th, td").length;
-        if (firstRowCols === 0) return "";
+
+        // tableData is flat -- reshape into 2D
         const rows2d = [];
         for (let i = 0; i < tableData.length; i += firstRowCols) {
           rows2d.push(tableData.slice(i, i + firstRowCols));
         }
         if (rows2d.length === 0) return "";
+
         const header = `| ${rows2d[0].join(" | ")} |`;
         const sep = `| ${rows2d[0].map(() => "---").join(" | ")} |`;
         const body = rows2d
           .slice(1)
-          .map((row) => `| ${row.join(" | ")} |`)
+          .map(row => `| ${row.join(" | ")} |`)
           .join("\n");
         return `\n${header}\n${sep}\n${body}\n`;
       }
@@ -219,13 +218,12 @@ function htmlToMarkdown(cleanedHtml) {
   }
 
   // Find main content area, falling back to body
-  const main =
-    $("main").first().get(0) ||
-    $("article").first().get(0) ||
-    $('[role="main"]').first().get(0) ||
-    $("#content").first().get(0) ||
-    $(".content").first().get(0) ||
-    $("body").first().get(0);
+  const mainContentSelectors = ["main", "article", '[role="main"]', "#content", ".content", "body"];
+  let main = null;
+  for (const sel of mainContentSelectors) {
+    main = $(sel).first().get(0);
+    if (main) break;
+  }
 
   if (!main) return "";
 
@@ -233,7 +231,7 @@ function htmlToMarkdown(cleanedHtml) {
   return md.replace(/\n{3,}/g, "\n\n").trim();
 }
 
-// --- Extract links with text (richer than utils.extractLinks) ---------------
+// --- Extract links with text ------------------------------------------------
 
 function extractLinksWithText(html, baseUrl) {
   const $ = load(html);
@@ -264,39 +262,32 @@ function extractLinksWithText(html, baseUrl) {
 // --- Main scraper -----------------------------------------------------------
 
 async function scrapeWithPlaywright(targetUrl) {
-  // Rewrite special URLs (Google Docs, etc.)
   const rewrittenUrl = rewriteUrl(targetUrl);
 
-  // Generate a random realistic user agent
-  const ua = mobileMode
-    ? new UserAgent({ deviceCategory: "mobile" })
-    : new UserAgent({ deviceCategory: "desktop" });
+  const ua = new UserAgent({
+    deviceCategory: mobileMode ? "mobile" : "desktop",
+  });
 
   const viewport = mobileMode
     ? { width: 390, height: 844 }
     : { width: 1280, height: 800 };
 
-  // Browser launch options
-  const launchOptions = {
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-accelerated-2d-canvas",
-      "--no-first-run",
-      "--no-zygote",
-      "--disable-gpu",
-    ],
-  };
+  const launchArgs = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-accelerated-2d-canvas",
+    "--no-first-run",
+    "--no-zygote",
+    "--disable-gpu",
+  ];
 
   if (proxyServer) {
-    launchOptions.args.push(`--proxy-server=${proxyServer}`);
+    launchArgs.push(`--proxy-server=${proxyServer}`);
   }
 
-  const browser = await chromium.launch(launchOptions);
+  const browser = await chromium.launch({ headless: true, args: launchArgs });
 
-  // Context options
   const contextOptions = {
     userAgent: ua.toString(),
     viewport,
@@ -317,26 +308,23 @@ async function scrapeWithPlaywright(targetUrl) {
 
   const context = await browser.newContext(contextOptions);
 
-  // Set up route interception for ad blocking
   if (adblockEnabled) {
     await context.route("**/*", (route, request) => {
       const hostname = new URL(request.url()).hostname;
-      if (AD_SERVING_DOMAINS.some((domain) => hostname.includes(domain))) {
+      if (AD_SERVING_DOMAINS.some(domain => hostname.includes(domain))) {
         return route.abort();
       }
       return route.continue();
     });
   }
 
-  // Set up route interception for media blocking
   if (blockMedia) {
     const pattern = `**/*.{${BLOCKED_MEDIA_EXTENSIONS.join(",")}}`;
-    await context.route(pattern, (route) => route.abort());
+    await context.route(pattern, route => route.abort());
   }
 
   const page = await context.newPage();
 
-  // Set custom headers if provided
   if (Object.keys(headers).length > 0) {
     await page.setExtraHTTPHeaders(headers);
   }
@@ -347,10 +335,8 @@ async function scrapeWithPlaywright(targetUrl) {
       timeout: 30000,
     });
 
-    // Extra wait for dynamic content
     await page.waitForTimeout(waitMs);
 
-    // If a specific selector is requested, wait for it
     if (selector) {
       try {
         await page.waitForSelector(selector, { timeout: 10000 });
@@ -359,7 +345,6 @@ async function scrapeWithPlaywright(targetUrl) {
       }
     }
 
-    // Get raw HTML and final URL from the browser
     const rawHtml = await page.content();
     const finalUrl = page.url();
 
@@ -369,10 +354,11 @@ async function scrapeWithPlaywright(targetUrl) {
   }
 }
 
+// --- Entry point ------------------------------------------------------------
+
 try {
   const { rawHtml, finalUrl } = await scrapeWithPlaywright(url);
 
-  // Process HTML with Cheerio utilities in Node.js
   const cleaned = cleanHtml(rawHtml, finalUrl);
   const metadata = extractMetadata(rawHtml, finalUrl);
   const links = extractLinksWithText(cleaned, finalUrl);
@@ -380,7 +366,6 @@ try {
   const youtube = extractYouTubeData(rawHtml);
   const markdown = htmlToMarkdown(cleaned);
 
-  // Output as structured JSON
   const output = {
     url: finalUrl,
     title: metadata.title || "",
@@ -388,10 +373,13 @@ try {
     content: markdown,
     links,
     images,
-    ...(youtube ? { youtube } : {}),
     linkCount: links.length,
     imageCount: images.length,
   };
+
+  if (youtube) {
+    output.youtube = youtube;
+  }
 
   console.log(JSON.stringify(output, null, 2));
 } catch (error) {

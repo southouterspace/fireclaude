@@ -38,7 +38,7 @@ Extraction parameters can come from a **file** (`--params`) or **inline flags** 
 
 ### From a params file (`--params=<file>`)
 
-If `--params` is specified, read the JSON file. It should contain any combination of:
+Read the JSON file. It should contain any combination of:
 ```json
 {
   "schema": { "type": "object", "properties": { ... } },
@@ -61,12 +61,6 @@ If `--params` is specified, read the JSON file. It should contain any combinatio
    - `--prompt` replaces `prompt` from file
    - `--fields` replaces `fields` from file (split the comma-separated value into an array)
 3. The final merged parameters are used for extraction
-
-### Parameter definitions
-
-- `schema`: A JSON Schema defining the exact structure of extracted data
-- `prompt`: Natural language instructions for what to extract
-- `fields`: Simple list of field names to extract (shorthand for schema)
 
 If no params file or inline flags are given, ask the user what they want to extract, or provide a comprehensive summary of the page content.
 
